@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Calculate hemodynamic parameters including CO, CI, SVR, SVRI, Ees, Ea, and VAC">
+    <meta name="theme-color" content="#3B82F6">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Hemodynamic Calc">
+    <title>Hemodynamic Calculator</title>
+    <link rel="manifest" href="data:application/json;base64,ewogICJuYW1lIjogIkhlbW9keW5hbWljIENhbGN1bGF0b3IiLAogICJzaG9ydF9uYW1lIjogIkhlbW8gQ2FsYyIsCiAgImRlc2NyaXB0aW9uIjogIkNhbGN1bGF0ZSBoZW1vZHluYW1pYyBwYXJhbWV0ZXJzIiwKICAic3RhcnRfdXJsIjogIi8iLAogICJkaXNwbGF5IjogInN0YW5kYWxvbmUiLAogICJiYWNrZ3JvdW5kX2NvbG9yIjogIiNGRkZGRkYiLAogICJ0aGVtZV9jb2xvciI6ICIjM0I4MkY2IiwKICAiaWNvbnMiOiBbCiAgICB7CiAgICAgICJzcmMiOiAiZGF0YTppbWFnZS9zdmcreG1sLCUzQ3N2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPScxOTInIGhlaWdodD0nMTkyJyB2aWV3Qm94PScwIDAgMTkyIDE5MiclM0UlM0NyZWN0IHdpZHRoPScxOTInIGhlaWdodD0nMTkyJyBmaWxsPSclMjMzQjgyRjYnLyUzRSUzQ3RleHQgeD0nNTAlMjUnIHk9JzUwJTI1JyBmb250LXNpemU9JzgwJyBmaWxsPSd3aGl0ZScgZm9udC1mYW1pbHk9J0FyaWFsJyB0ZXh0LWFuY2hvcj0nbWlkZGxlJyBkb21pbmFudC1iYXNlbGluZT0nbWlkZGxlJyUzRUglM0MvdGV4dCUzRSUzQy9zdmclM0UiLAogICAgICAic2l6ZXMiOiAiMTkyeDE5MiIsCiAgICAgICJ0eXBlIjogImltYWdlL3N2Zyt4bWwiCiAgICB9LAogICAgewogICAgICAic3JjIjogImRhdGE6aW1hZ2Uvc3ZnK3htbCwlM0NzdmcgeG1sbnM9J2h0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnJyB3aWR0aD0nNTEyJyBoZWlnaHQ9JzUxMicgdmlld0JveD0nMCAwIDUxMiA1MTInJTNFJTNDcmVjdCB3aWR0aD0nNTEyJyBoZWlnaHQ9JzUxMicgZmlsbD0nJTIzM0I4MkY2Jy8lM0UlM0N0ZXh0IHg9JzUwJTI1JyB5PSc1MCUyNScgZm9udC1zaXplPScyMDAnIGZpbGw9J3doaXRlJyBmb250LWZhbWlseT0nQXJpYWwnIHRleHQtYW5jaG9yPSdtaWRkbGUnIGRvbWluYW50LWJhc2VsaW5lPSdtaWRkbGUnJTNFSCUzQy90ZXh0JTNFJTNDL3N2ZyUzRSIsCiAgICAgICJzaXplcyI6ICI1MTJ4NTEyIiwKICAgICAgInR5cGUiOiAiaW1hZ2Uvc3ZnK3htbCIKICAgIH0KICBdCn0=">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        @media (display-mode: standalone) {
+            body {
+                padding-top: env(safe-area-inset-top);
+                padding-bottom: env(safe-area-inset-bottom);
+            }
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-blue-50 to-indigo-100">
+    <div id="app"></div>
+
+    <script>
+        // Register Service Worker for PWA
+        if ('serviceWorker' in navigator) {
+            const swCode = `
+                self.addEventListener('install', (e) => {
+                    self.skipWaiting();
+                });
+                self.addEventListener('activate', (e) => {
+                    self.clients.claim();
+                });
+                self.addEventListener('fetch', (e) => {
+                    e.respondWith(
+                        caches.match(e.request).then(response => response || fetch(e.request))
+                    );
+                });
+            `;
+            const blob = new Blob([swCode], { type: 'application/javascript' });
+            const swUrl = URL.createObjectURL(blob);
+            
+            navigator.serviceWorker.register(swUrl).then(() => {
+                console.log('Service Worker registered');
+            });
+        }
+
+        // React-like state management
+        class HemodynamicCalculator {
+            constructor() {
+                this.state = {
+                    height: '',
+                    weight: '',
+                    sbp: '',
+                    dbp: '',
+                    map: '',
+                    cvp: '',
+                    hr: '',
+                    sv: '',
+                    ef: '',
+                    pep: '',
+                    tsp: ''
+                };
+                this.results = {};
+                this.render();
+            }
+
+            setState(updates) {
+                this.state = { ...this.state, ...updates };
+                this.calculate();
+                this.render();
+            }
+
+            clearAll() {
+                this.state = {
+                    height: '',
+                    weight: '',
+                    sbp: '',
+                    dbp: '',
+                    map: '',
+                    cvp: '',
+                    hr: '',
+                    sv: '',
+                    ef: '',
+                    pep: '',
+                    tsp: ''
+                };
+                this.results = {};
+                this.render();
+            }
+
+            calculate() {
+                const h = parseFloat(this.state.height) || 0;
+                const w = parseFloat(this.state.weight) || 0;
+                const sbp = parseFloat(this.state.sbp) || 0;
+                const dbp = parseFloat(this.state.dbp) || 0;
+                const map = parseFloat(this.state.map) || 0;
+                const cvp = parseFloat(this.state.cvp) || 0;
+                const hr = parseFloat(this.state.hr) || 0;
+                const sv = parseFloat(this.state.sv) || 0;
+                const ef = parseFloat(this.state.ef) || 0;
+                const pep = parseFloat(this.state.pep) || 0;
+                const tsp = parseFloat(this.state.tsp) || 0;
+
+                this.results = {};
+
+                if (h > 0 && w > 0) {
+                    this.results.bsa = (0.007184 * Math.pow(h, 0.725) * Math.pow(w, 0.425)).toFixed(3);
+                }
+
+                if (sv > 0 && hr > 0) {
+                    this.results.co = (sv * hr / 1000).toFixed(2);
+                }
+
+                if (this.results.co > 0 && this.results.bsa > 0) {
+                    this.results.ci = (this.results.co / this.results.bsa).toFixed(2);
+                }
+
+                if (map > 0 && cvp >= 0 && this.results.co > 0) {
+                    this.results.svr = (((map - cvp) / this.results.co) * 80).toFixed(0);
+                }
+
+                if (this.results.svr > 0 && this.results.bsa > 0) {
+                    this.results.svri = (this.results.svr * this.results.bsa).toFixed(0);
+                }
+
+                let tNd = 0;
+                if (pep > 0 && tsp > 0) {
+                    tNd = pep / tsp;
+                }
+
+                let end_est = 0;
+                if (ef > 0 && sbp > 0 && dbp > 0 && tNd > 0) {
+                    end_est = 0.0275 - (0.165 * ef / 100) + (0.3656 * (dbp / (sbp * 0.9))) + (0.515 * tNd);
+                }
+
+                if (dbp > 0 && sbp > 0 && sv > 0 && end_est > 0) {
+                    const numerator = dbp - (end_est * sbp * 0.9);
+                    const denominator = end_est * sv;
+                    this.results.ees = (numerator / denominator).toFixed(3);
+                }
+
+                if (sbp > 0 && sv > 0) {
+                    this.results.ea = ((sbp * 0.9) / sv).toFixed(3);
+                }
+
+                if (this.results.ea > 0 && this.results.ees > 0) {
+                    this.results.ea_ees = (this.results.ea / this.results.ees).toFixed(2);
+                }
+            }
+
+            getArrow(value, min, max) {
+                if (!value) return '';
+                const val = parseFloat(value);
+                if (val < min) return '<span class="text-blue-500 text-3xl font-bold">▼</span>';
+                if (val > max) return '<span class="text-red-500 text-3xl font-bold">▲</span>';
+                return '';
+            }
+
+            render() {
+                const app = document.getElementById('app');
+                app.innerHTML = `
+                    <div class="min-h-screen p-4">
+                        <div class="max-w-5xl mx-auto">
+                            <div class="bg-white rounded-lg shadow-xl p-6 mb-6">
+                                <div class="flex items-center gap-3 mb-6">
+                                    <svg class="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path>
+                                    </svg>
+                                    <h1 class="text-3xl font-bold text-gray-800">Hemodynamic Calculator</h1>
+                                    <button onclick="app.clearAll()" class="ml-auto px-4 py-2 bg-red-500 hover:bg-red-600 text-white font-semibold rounded-lg transition-colors duration-200">
+                                        Clear All
+                                    </button>
+                                </div>
+
+                                <div class="space-y-4 mb-6">
+                                    <!-- Patient Profile -->
+                                    <div class="bg-white border-2 border-blue-300 rounded-lg p-4">
+                                        <h2 class="text-sm font-semibold text-gray-700 mb-3 border-b border-gray-200 pb-2">Patient Profile</h2>
+                                        <div class="space-y-3">
+                                            <div class="flex items-center gap-2">
+                                                <span class="text-sm text-gray-600 min-w-[60px]">Height:</span>
+                                                <input type="number" step="0.1" name="height" value="${this.state.height}" 
+                                                    onchange="app.setState({height: this.value})"
+                                                    class="px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 w-36 md:w-48 lg:w-60">
+                                                <span class="text-sm text-gray-500">cm</span>
+                                            </div>
+                                            <div class="flex items-center gap-2">
+                                                <span class="text-sm text-gray-600 min-w-[60px]">Weight:</span>
+                                                <input type="number" step="0.1" name="weight" value="${this.state.weight}"
+                                                    onchange="app.setState({weight: this.value})"
+                                                    class="px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 w-36 md:w-48 lg:w-60">
+                                                <span class="text-sm text-gray-500">kg</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Vital Signs -->
+                                    <div class="bg-white border-2 border-blue-300 rounded-lg p-4">
+                                        <h2 class="text-sm font-semibold text-gray-700 mb-3 border-b border-gray-200 pb-2">Vital Signs</h2>
+                                        <div class="space-y-3">
+                                            <!-- SBP -->
+                                            <div class="flex items-center gap-2">
+                                                <span class="text-sm text-gray-600 min-w-[40px]">SBP:</span>
+                                                <input type="number" step="0.1" value="${this.state.sbp}"
+                                                    onchange="app.setState({sbp: this.value})"
+                                                    class="px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 w-36 md:w-48 lg:w-60">
+                                                <span class="text-sm text-gray-500">mmHg</span>
+                                            </div>
+                                            <!-- DBP -->
+                                            <div class="flex items-center gap-2">
+                                                <span class="text-sm text-gray-600 min-w-[40px]">DBP:</span>
+                                                <input type="number" step="0.1" value="${this.state.dbp}"
+                                                    onchange="app.setState({dbp: this.value})"
+                                                    class="px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 w-36 md:w-48 lg:w-60">
+                                                <span class="text-sm text-gray-500">mmHg</span>
+                                            </div>
+                                            <!-- MAP -->
+                                            <div class="flex items-center gap-2">
+                                                <span class="text-sm text-gray-600 min-w-[40px]">MAP:</span>
+                                                <input type="number" step="0.1" value="${this.state.map}"
+                                                    onchange="app.setState({map: this.value})"
+                                                    class="px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 w-36 md:w-48 lg:w-60">
+                                                <span class="text-sm text-gray-500">mmHg</span>
+                                            </div>
+                                            <!-- HR -->
+                                            <div class="flex items-center gap-2">
+                                                <span class="text-sm text-gray-600 min-w-[40px]">HR:</span>
+                                                <input type="number" step="0.1" value="${this.state.hr}"
+                                                    onchange="app.setState({hr: this.value})"
+                                                    class="px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 w-36 md:w-48 lg:w-60">
+                                                <span class="text-sm text-gray-500">bpm</span>
+                                            </div>
+                                            <!-- CVP -->
+                                            <div class="flex items-center gap-2">
+                                                <span class="text-sm text-gray-600 min-w-[40px]">CVP:</span>
+                                                <input type="number" step="0.1" value="${this.state.cvp}"
+                                                    onchange="app.setState({cvp: this.value})"
+                                                    class="px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 w-36 md:w-48 lg:w-60">
+                                                <span class="text-sm text-gray-500">mmHg</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Echocardiography -->
+                                    <div class="bg-white border-2 border-blue-300 rounded-lg p-4">
+                                        <h2 class="text-sm font-semibold text-gray-700 mb-3 border-b border-gray-200 pb-2">Echocardiography</h2>
+                                        <div class="space-y-3">
+                                            <!-- Stroke volume -->
+                                            <div class="flex items-center gap-2">
+                                                <span class="text-sm text-gray-600 min-w-[120px]">Stroke volume:</span>
+                                                <input type="number" step="0.1" value="${this.state.sv}"
+                                                    onchange="app.setState({sv: this.value})"
+                                                    class="px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 w-36 md:w-48 lg:w-60">
+                                                <span class="text-sm text-gray-500">mL</span>
+                                            </div>
+                                            <!-- Ejection fraction -->
+                                            <div class="flex items-center gap-2">
+                                                <span class="text-sm text-gray-600 min-w-[120px]">Ejection fraction:</span>
+                                                <input type="number" step="0.1" value="${this.state.ef}"
+                                                    onchange="app.setState({ef: this.value})"
+                                                    class="px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 w-36 md:w-48 lg:w-60">
+                                                <span class="text-sm text-gray-500">%</span>
+                                            </div>
+                                            <!-- Pre-ejection period -->
+                                            <div class="flex items-center gap-2">
+                                                <span class="text-sm text-gray-600 min-w-[120px]">Pre-ejection period:</span>
+                                                <input type="number" step="0.001" value="${this.state.pep}"
+                                                    onchange="app.setState({pep: this.value})"
+                                                    class="px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 w-36 md:w-48 lg:w-60">
+                                                <span class="text-sm text-gray-500">ms</span>
+                                            </div>
+                                            <!-- Total systolic period -->
+                                            <div class="flex items-center gap-2">
+                                                <span class="text-sm text-gray-600 min-w-[120px]">Total systolic period:</span>
+                                                <input type="number" step="0.001" value="${this.state.tsp}"
+                                                    onchange="app.setState({tsp: this.value})"
+                                                    class="px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 w-36 md:w-48 lg:w-60">
+                                                <span class="text-sm text-gray-500">ms</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Results -->
+                                <div class="bg-gray-100 border-2 border-gray-400 rounded-lg p-4">
+                                    <h2 class="text-sm font-semibold text-gray-700 mb-3 border-b border-gray-200 pb-2">Calculated Results</h2>
+                                    <div class="space-y-3">
+                                        <div class="grid grid-cols-2 gap-3">
+                                            <div class="bg-white p-3 rounded border border-gray-300">
+                                                <div class="text-xs font-bold text-gray-700 mb-1">CO (Cardiac Output)</div>
+                                                <div class="flex items-center gap-2">
+                                                    <div class="text-2xl font-bold text-gray-900">${this.results.co || '—'}</div>
+                                                    ${this.getArrow(this.results.co, 4.0, 8.0)}
+                                                </div>
+                                                <div class="text-xs text-gray-500 mt-1">(4.0 - 8.0 L/min)</div>
+                                            </div>
+                                            <div class="bg-white p-3 rounded border border-gray-300">
+                                                <div class="text-xs font-bold text-gray-700 mb-1">CI (Cardiac Index)</div>
+                                                <div class="flex items-center gap-2">
+                                                    <div class="text-2xl font-bold text-gray-900">${this.results.ci || '—'}</div>
+                                                    ${this.getArrow(this.results.ci, 2.5, 4.0)}
+                                                </div>
+                                                <div class="text-xs text-gray-500 mt-1">(2.5 - 4.0 L/min/m²)</div>
+                                            </div>
+                                        </div>
+                                        <div class="grid grid-cols-2 gap-3">
+                                            <div class="bg-white p-3 rounded border border-gray-300">
+                                                <div class="text-xs font-bold text-gray-700 mb-1">SVR (Systemic Vascular Resistance)</div>
+                                                <div class="flex items-center gap-2">
+                                                    <div class="text-2xl font-bold text-gray-900">${this.results.svr || '—'}</div>
+                                                    ${this.getArrow(this.results.svr, 800, 1200)}
+                                                </div>
+                                                <div class="text-xs text-gray-500 mt-1">(800 - 1200 dyn·s/cm⁵)</div>
+                                            </div>
+                                            <div class="bg-white p-3 rounded border border-gray-300">
+                                                <div class="text-xs font-bold text-gray-700 mb-1">SVRI (Systemic Vascular Resistance Index)</div>
+                                                <div class="flex items-center gap-2">
+                                                    <div class="text-2xl font-bold text-gray-900">${this.results.svri || '—'}</div>
+                                                    ${this.getArrow(this.results.svri, 1970, 2390)}
+                                                </div>
+                                                <div class="text-xs text-gray-500 mt-1">(1970 - 2390 dyn·s·m²/cm⁵)</div>
+                                            </div>
+                                        </div>
+                                        <div class="grid grid-cols-3 gap-3">
+                                            <div class="bg-white p-3 rounded border border-gray-300">
+                                                <div class="text-xs font-bold text-gray-700 mb-1">Ees (Ventricular Elastance)</div>
+                                                <div class="flex items-center gap-2">
+                                                    <div class="text-xl font-bold text-gray-900">${this.results.ees || '—'}</div>
+                                                    ${this.getArrow(this.results.ees, 1.5, 2.5).replace('text-3xl', 'text-2xl')}
+                                                </div>
+                                                <div class="text-xs text-gray-500 mt-1">(1.5 - 2.5 mmHg/mL)</div>
+                                            </div>
+                                            <div class="bg-white p-3 rounded border border-gray-300">
+                                                <div class="text-xs font-bold text-gray-700 mb-1">Ea (Arterial Elastance)</div>
+                                                <div class="flex items-center gap-2">
+                                                    <div class="text-xl font-bold text-gray-900">${this.results.ea || '—'}</div>
+                                                    ${this.getArrow(this.results.ea, 1.0, 2.0).replace('text-3xl', 'text-2xl')}
+                                                </div>
+                                                <div class="text-xs text-gray-500 mt-1">(1.0 - 2.0 mmHg/mL)</div>
+                                            </div>
+                                            <div class="bg-white p-3 rounded border border-gray-300">
+                                                <div class="text-xs font-bold text-gray-700 mb-1">Ea/Ees (VAC)</div>
+                                                <div class="flex items-center gap-2">
+                                                    <div class="text-xl font-bold text-gray-900">${this.results.ea_ees || '—'}</div>
+                                                    ${this.getArrow(this.results.ea_ees, 0.5, 1.0).replace('text-3xl', 'text-2xl')}
+                                                </div>
+                                                <div class="text-xs text-gray-500 mt-1">
+                                                    ${this.results.ea_ees && parseFloat(this.results.ea_ees) >= 0.5 && parseFloat(this.results.ea_ees) <= 1.0 
+                                                        ? '(Optimal value: 0.5 - 1.0)' 
+                                                        : '(0.5 - 1.0)'}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        const app = new HemodynamicCalculator();
+    </script>
+</body>
+</html>
