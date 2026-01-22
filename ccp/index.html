@@ -1,1 +1,289 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Pmsf & Pcc Bedside Estimator (Inspiratory Hold)</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    :root { --bg:#0b1220; --card:#111a2e; --text:#e8eefc; --muted:#a9b6d6; --line:#223053; --accent:#7aa2ff; }
+    body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif; background:var(--bg); color:var(--text); }
+    .wrap { max-width:1100px; margin:0 auto; padding:18px; }
+    h1 { font-size:18px; margin:0 0 10px; font-weight:700; }
+    .grid { display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; box-shadow: 0 6px 24px rgba(0,0,0,.25); }
+    .sub { color:var(--muted); font-size:13px; line-height:1.45; margin:6px 0 0; }
+    table { width:100%; border-collapse:collapse; margin-top:10px; }
+    th, td { border-bottom:1px solid var(--line); padding:8px 6px; font-size:13px; }
+    th { text-align:left; color:var(--muted); font-weight:600; }
+    input { width:100%; box-sizing:border-box; background:#0c1428; border:1px solid var(--line); border-radius:10px; color:var(--text); padding:8px 10px; font-size:13px; outline:none; }
+    input:focus { border-color: var(--accent); }
+    .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:12px; }
+    button { background:var(--accent); color:#081127; border:none; border-radius:12px; padding:10px 12px; font-weight:700; cursor:pointer; }
+    button.secondary { background:#223053; color:var(--text); }
+    .results { display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-top:10px; }
+    .pill { background:#0c1428; border:1px solid var(--line); border-radius:12px; padding:10px; }
+    .pill .k { color:var(--muted); font-size:12px; }
+    .pill .v { font-size:18px; font-weight:800; margin-top:4px; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
+    .chartcard { margin-top:14px; }
+    canvas { width:100% !important; height:420px !important; }
+    @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } canvas { height:360px !important; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Pmsf & Pcc estimator (Using inspiratory hold maneuver)</h1>
+    <div class="grid">
+      <div class="card">
+        <div style="display:flex; justify-content:space-between; gap:10px; align-items:flex-start;">
+          <div>
+            <div style="font-weight:800;">Venous Return Curve</div>
+            <div class="sub">4개의 (Pcv, CO) 입력 → 선형회귀 CO = m·Pcv + b → CO=0에서의 Pcv 절편 = <b>Pmsf</b></div>
+          </div>
+        </div>
 
+        <table>
+          <thead>
+            <tr><th style="width:50%;">Pcv (mmHg)</th><th>CO (L/min)</th></tr>
+          </thead>
+          <tbody id="vrBody"></tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <div style="display:flex; justify-content:space-between; gap:10px; align-items:flex-start;">
+          <div>
+            <div style="font-weight:800;">Ventricular Output Curve</div>
+            <div class="sub">4개의 (Pa, CO) 입력 → 선형회귀 CO = m·Pa + b → CO=0에서의 Pa 절편 = <b>Pcc</b></div>
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr><th style="width:50%;">Pa (mmHg)</th><th>CO (L/min)</th></tr>
+          </thead>
+          <tbody id="voBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card chartcard">
+      <div class="row" style="justify-content:space-between;">
+        <div class="sub" style="margin:0;">
+          입력값으로 2개의 곡선을 같은 좌표에 표시합니다. (x축=Pressure, y축=CO) <span class="mono">CO = m·P + b</span> 의 <span class="mono">P = -b/m</span>이 zero-flow intercept.
+        </div>
+        <div class="row" style="margin:0;">
+          <button id="btnCompute">Compute & Plot</button>
+          <button class="secondary" id="btnSample">Fill Sample</button>
+          <button class="secondary" id="btnClear">Clear</button>
+        </div>
+      </div>
+
+      <div class="results">
+        <div class="pill">
+          <div class="k">Pmsf (mmHg) — venous return zero-flow intercept</div>
+          <div class="v" id="outPmsf">—</div>
+          <div class="k mono" id="outVRfit">VR fit: —</div>
+        </div>
+        <div class="pill">
+          <div class="k">Pcc (mmHg) — ventricular output zero-flow intercept</div>
+          <div class="v" id="outPcc">—</div>
+          <div class="k mono" id="outVOfit">VO fit: —</div>
+        </div>
+      </div>
+
+      <div style="margin-top:12px;">
+        <canvas id="chart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Build 4-row input tables
+    function buildRows(tbodyId, prefix) {
+      const tb = document.getElementById(tbodyId);
+      tb.innerHTML = "";
+      for (let i = 1; i <= 4; i++) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td><input inputmode="decimal" id="${prefix}P${i}" placeholder="e.g., 5"></td>
+          <td><input inputmode="decimal" id="${prefix}CO${i}" placeholder="e.g., 6.2"></td>
+        `;
+        tb.appendChild(tr);
+      }
+    }
+    buildRows("vrBody", "vr");
+    buildRows("voBody", "vo");
+
+    function parseNum(v) {
+      const x = Number(String(v).replace(/,/g, "").trim());
+      return Number.isFinite(x) ? x : NaN;
+    }
+
+    // Linear regression: y = m x + b
+    function linReg(x, y) {
+      const n = x.length;
+      const xbar = x.reduce((a,b)=>a+b,0)/n;
+      const ybar = y.reduce((a,b)=>a+b,0)/n;
+      let num = 0, den = 0;
+      for (let i=0;i<n;i++){
+        num += (x[i]-xbar)*(y[i]-ybar);
+        den += (x[i]-xbar)*(x[i]-xbar);
+      }
+      const m = num/den;
+      const b = ybar - m*xbar;
+
+      // R^2
+      let ssTot = 0, ssRes = 0;
+      for (let i=0;i<n;i++){
+        const yi = y[i];
+        const yhat = m*x[i] + b;
+        ssTot += (yi - ybar)*(yi - ybar);
+        ssRes += (yi - yhat)*(yi - yhat);
+      }
+      const r2 = ssTot > 0 ? 1 - (ssRes/ssTot) : NaN;
+      return { m, b, r2 };
+    }
+
+    function getPairs(prefix) {
+      const pts = [];
+      for (let i=1;i<=4;i++){
+        const P = parseNum(document.getElementById(`${prefix}P${i}`).value);
+        const CO = parseNum(document.getElementById(`${prefix}CO${i}`).value);
+        if (Number.isFinite(P) && Number.isFinite(CO)) pts.push({x:P, y:CO});
+      }
+      return pts;
+    }
+
+    // Chart.js setup
+    const ctx = document.getElementById("chart");
+    const chart = new Chart(ctx, {
+      type: "scatter",
+      data: {
+        datasets: [
+          { label:"Venous return points (Pcv, CO)", data:[], pointRadius:5 },
+          { label:"Venous return fit", data:[], showLine:true, pointRadius:0, borderDash:[6,4] },
+          { label:"Ventricular output points (Pa, CO)", data:[], pointRadius:5 },
+          { label:"Ventricular output fit", data:[], showLine:true, pointRadius:0, borderDash:[6,4] },
+          { label:"Pmsf (CO=0 intercept)", data:[], pointRadius:6 },
+          { label:"Pcc (CO=0 intercept)", data:[], pointRadius:6 },
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { labels: { color: "#e8eefc" } },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => `${ctx.dataset.label}: P=${ctx.raw.x.toFixed(2)}, CO=${ctx.raw.y.toFixed(2)}`
+            }
+          }
+        },
+        scales: {
+          x: { title:{ display:true, text:"Pressure (mmHg)", color:"#e8eefc" }, ticks:{ color:"#e8eefc" }, grid:{ color:"rgba(34,48,83,.6)" } },
+          y: { title:{ display:true, text:"CO (L/min)", color:"#e8eefc" }, ticks:{ color:"#e8eefc" }, grid:{ color:"rgba(34,48,83,.6)" }, suggestedMin:0 }
+        }
+      }
+    });
+
+    function lineData(m, b, xMin, xMax) {
+      // Build a line with 2 points (straight line)
+      return [
+        { x: xMin, y: m*xMin + b },
+        { x: xMax, y: m*xMax + b }
+      ];
+    }
+
+    function computeAndPlot() {
+      const vrPts = getPairs("vr");
+      const voPts = getPairs("vo");
+
+      if (vrPts.length < 2 || voPts.length < 2) {
+        alert("각 곡선에 최소 2개 이상의 (Pressure, CO) 쌍이 필요합니다. (권장: 4개 모두 입력)");
+        return;
+      }
+
+      const vrX = vrPts.map(p=>p.x), vrY = vrPts.map(p=>p.y);
+      const voX = voPts.map(p=>p.x), voY = voPts.map(p=>p.y);
+
+      const vrFit = linReg(vrX, vrY); // CO = m*Pcv + b
+      const voFit = linReg(voX, voY); // CO = m*Pa  + b
+
+      // Zero-flow intercept (CO=0): 0 = m*P + b  => P = -b/m
+      const pmsf = -vrFit.b / vrFit.m;
+      const pcc  = -voFit.b / voFit.m;
+
+      if (!Number.isFinite(pmsf) || !Number.isFinite(pcc)) {
+        alert("회귀 결과가 비정상입니다. 입력값(특히 pressure 다양성)을 확인해주세요.");
+        return;
+      }
+
+      // Determine x range for plotting
+      const allX = [...vrX, ...voX, pmsf, pcc].filter(Number.isFinite);
+      const xMin = Math.min(...allX) - 10;
+      const xMax = Math.max(...allX) + 10;
+
+      // Update outputs
+      document.getElementById("outPmsf").textContent = `${pmsf.toFixed(1)} mmHg`;
+      document.getElementById("outPcc").textContent  = `${pcc.toFixed(1)} mmHg`;
+      document.getElementById("outVRfit").textContent = `VR fit: CO = ${vrFit.m.toFixed(4)}·Pcv + ${vrFit.b.toFixed(4)}  (R²=${vrFit.r2.toFixed(3)})`;
+      document.getElementById("outVOfit").textContent = `VO fit: CO = ${voFit.m.toFixed(4)}·Pa  + ${voFit.b.toFixed(4)}  (R²=${voFit.r2.toFixed(3)})`;
+
+      // Update chart datasets
+      chart.data.datasets[0].data = vrPts;
+      chart.data.datasets[1].data = lineData(vrFit.m, vrFit.b, xMin, xMax);
+
+      chart.data.datasets[2].data = voPts;
+      chart.data.datasets[3].data = lineData(voFit.m, voFit.b, xMin, xMax);
+
+      chart.data.datasets[4].data = [{ x: pmsf, y: 0 }];
+      chart.data.datasets[5].data = [{ x: pcc,  y: 0 }];
+
+      // Improve visibility: auto-scale
+      chart.options.scales.x.min = Math.max(0, xMin);
+      chart.options.scales.x.max = xMax;
+      chart.update();
+    }
+
+    function clearAll() {
+      const ids = [];
+      for (let i=1;i<=4;i++){
+        ids.push(`vrP${i}`,`vrCO${i}`,`voP${i}`,`voCO${i}`);
+      }
+      ids.forEach(id => document.getElementById(id).value = "");
+      document.getElementById("outPmsf").textContent = "—";
+      document.getElementById("outPcc").textContent = "—";
+      document.getElementById("outVRfit").textContent = "VR fit: —";
+      document.getElementById("outVOfit").textContent = "VO fit: —";
+      chart.data.datasets.forEach(ds => ds.data = []);
+      chart.options.scales.x.min = undefined;
+      chart.options.scales.x.max = undefined;
+      chart.update();
+    }
+
+    function fillSample() {
+      // 샘플: 대략 Fig 2와 비슷한 형태(예시일 뿐, 실제 환자 데이터 아님)
+      const vr = [
+        {P: 3,  CO: 7.1},
+        {P: 6,  CO: 6.0},
+        {P: 10, CO: 4.1},
+        {P: 13, CO: 3.0},
+      ];
+      const vo = [
+        {P: 50, CO: 3.0},
+        {P: 58, CO: 4.0},
+        {P: 70, CO: 6.0},
+        {P: 78, CO: 7.1},
+      ];
+      vr.forEach((d,i)=>{ document.getElementById(`vrP${i+1}`).value=d.P; document.getElementById(`vrCO${i+1}`).value=d.CO; });
+      vo.forEach((d,i)=>{ document.getElementById(`voP${i+1}`).value=d.P; document.getElementById(`voCO${i+1}`).value=d.CO; });
+    }
+
+    document.getElementById("btnCompute").addEventListener("click", computeAndPlot);
+    document.getElementById("btnClear").addEventListener("click", clearAll);
+    document.getElementById("btnSample").addEventListener("click", () => { fillSample(); computeAndPlot(); });
+  </script>
+</body>
+</html>
